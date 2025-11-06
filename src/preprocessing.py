@@ -17,7 +17,6 @@ def load_raw_data(poursuites_path: str, vacants_path: str) -> Tuple[pd.DataFrame
 
     return df_poursuites, df_vacants
 
-
 def clean_poursuites(df_poursuites: pd.DataFrame) -> pd.DataFrame:
     """
     Clean and prepare the 'Poursuites' dataset.
@@ -55,7 +54,6 @@ def clean_poursuites(df_poursuites: pd.DataFrame) -> pd.DataFrame:
 
     return df_poursuites
 
-
 def clean_vacants(df_vacants: pd.DataFrame) -> pd.DataFrame:
     """
     Clean and prepare the 'Vacants' dataset.
@@ -91,7 +89,6 @@ def clean_vacants(df_vacants: pd.DataFrame) -> pd.DataFrame:
 
     return df_vacants
 
-
 def merge_datasets(df_poursuites: pd.DataFrame, df_vacants: pd.DataFrame) -> pd.DataFrame:
     """
     Merge both datasets on district_id and year.
@@ -104,7 +101,6 @@ def merge_datasets(df_poursuites: pd.DataFrame, df_vacants: pd.DataFrame) -> pd.
         suffixes=("_poursuites", "_vacants")
     )
     return df_merged
-
 
 def preprocess_data(poursuites_path: str, vacants_path: str, output_path: str = "data/processed/merged_dataset.csv") -> pd.DataFrame:
     """

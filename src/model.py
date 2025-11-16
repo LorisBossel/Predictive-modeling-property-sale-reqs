@@ -7,6 +7,7 @@ import joblib
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
 from statsmodels.tsa.arima.model import ARIMA
+from sklearn.metrics import mean_absolute_error
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -109,40 +110,87 @@ def prepare_temporal_splits(df: pd.DataFrame, target_col: str):
     X_test = test_df[feature_cols].fillna(0)
     y_test = test_df[target_col]
     
-    print(f"\nTemporal Split:")
+    print(f"\nTemporal split:")
     print(f"   Train: {len(X_train)} samples (1994-2015)")
     print(f"   Validation: {len(X_val)} samples (2016-2020)")
     print(f"   Test: {len(X_test)} samples (2021-2024)")
     
     return X_train, X_val, X_test, y_train, y_val, y_test, feature_cols
 
-def train_random_forest(X_train, y_train, model_dir="models"):
+def train_random_forest(X_train, y_train, X_val, y_val, model_dir="models"):
     """
     Train Random Forest model for multivariate time series regression.
+    Now tracks validation performance during training.
     """
-    print("\nTraining Random Forest...")
-    rf = RandomForestRegressor(
-        n_estimators=150,
+    print("\nTraining Random Forest with validation tracking...")
+    
+    # Dictionary to store training history
+    history = {
+        'n_estimators': [],
+        'train_mae': [],
+        'val_mae': []
+    }
+    
+    # Train incrementally to see progression
+    max_estimators = 150
+    step = 10
+    
+    for n_est in range(step, max_estimators + 1, step):
+        # Train model with n_est trees
+        rf = RandomForestRegressor(
+            n_estimators=n_est,
+            max_depth=10,
+            min_samples_split=5,
+            random_state=42,
+            n_jobs=-1
+        )
+        rf.fit(X_train, y_train)
+        
+        # Calculate MAE on train and validation sets
+        train_pred = rf.predict(X_train)
+        val_pred = rf.predict(X_val)
+        
+        train_mae = mean_absolute_error(y_train, train_pred)
+        val_mae = mean_absolute_error(y_val, val_pred)
+        
+        # Store in history
+        history['n_estimators'].append(n_est)
+        history['train_mae'].append(train_mae)
+        history['val_mae'].append(val_mae)
+        
+        print(f"   n_estimators={n_est}: Train MAE={train_mae:.2f}, Val MAE={val_mae:.2f}")
+    
+    # Train final model with all estimators
+    rf_final = RandomForestRegressor(
+        n_estimators=max_estimators,
         max_depth=10,
         min_samples_split=5,
         random_state=42,
         n_jobs=-1
     )
-    rf.fit(X_train, y_train)
+    rf_final.fit(X_train, y_train)
     
-    # Save model
+    # Save model and history
     os.makedirs(model_dir, exist_ok=True)
     rf_path = os.path.join(model_dir, "random_forest.pkl")
-    joblib.dump(rf, rf_path)
-    print(f"   Model saved to {rf_path}")
+    history_path = os.path.join(model_dir, "rf_training_history.pkl")
     
-    return rf
+    joblib.dump(rf_final, rf_path)
+    joblib.dump(history, history_path)
+    
+    print(f"   Model saved to {rf_path}")
+    print(f"   Training history saved to {history_path}")
+    
+    return rf_final
 
-def train_xgboost(X_train, y_train, model_dir="models"):
+def train_xgboost(X_train, y_train, X_val, y_val, model_dir="models"):
     """
     Train XGBoost model for gradient boosting regression.
+    XGBoost has native support for tracking training history.
     """
-    print("\nTraining XGBoost...")
+    print("\nTraining XGBoost with validation tracking...")
+    
+    # XGBoost can automatically track train and validation metrics
     xgb = XGBRegressor(
         n_estimators=200,
         learning_rate=0.05,
@@ -150,15 +198,36 @@ def train_xgboost(X_train, y_train, model_dir="models"):
         subsample=0.8,
         colsample_bytree=0.8,
         random_state=42,
-        n_jobs=-1
+        n_jobs=-1,
+        eval_metric='mae'
     )
-    xgb.fit(X_train, y_train)
     
-    # Save model
+    # Fit with eval_set to track validation performance
+    xgb.fit(
+        X_train, y_train,
+        eval_set=[(X_train, y_train), (X_val, y_val)],
+        verbose=False
+    )
+    
+    # Extract training history
+    history = {
+        'iteration': list(range(len(xgb.evals_result()['validation_0']['mae']))),
+        'train_mae': xgb.evals_result()['validation_0']['mae'],
+        'val_mae': xgb.evals_result()['validation_1']['mae']
+    }
+    
+    # Save model and history
     os.makedirs(model_dir, exist_ok=True)
     xgb_path = os.path.join(model_dir, "xgboost.pkl")
+    history_path = os.path.join(model_dir, "xgb_training_history.pkl")
+    
     joblib.dump(xgb, xgb_path)
+    joblib.dump(history, history_path)
+    
     print(f"   Model saved to {xgb_path}")
+    print(f"   Final Train MAE: {history['train_mae'][-1]:.2f}")
+    print(f"   Final Val MAE: {history['val_mae'][-1]:.2f}")
+    print(f"   Training history saved to {history_path}")
     
     return xgb
 
@@ -189,7 +258,7 @@ def train_arima_per_district(df: pd.DataFrame, target_col: str, date_col: str, m
             model = ARIMA(train_data, order=(1, 1, 1))
             fitted_model = model.fit()
             arima_models[district_id] = fitted_model
-            print(f"   District {district_id}: ARIMA trained successfully")
+            print(f"   District {district_id}: ARIMA trained.")
             
         except Exception as e:
             print(f"   Warning: District {district_id}: ARIMA failed ({str(e)[:50]})")
@@ -213,9 +282,7 @@ def run_training_pipeline(featured_path: str, model_dir="models"):
     5. Train all three models (RF, XGBoost, ARIMA)
     6. Save all models
     """
-    print("=" * 60)
-    print("MODEL TRAINING PIPELINE")
-    print("=" * 60)
+    print("Model training pipeline")
     
     # Load data
     df, date_col = load_featured_data(featured_path)
@@ -227,19 +294,19 @@ def run_training_pipeline(featured_path: str, model_dir="models"):
     # Prepare temporal splits
     X_train, X_val, X_test, y_train, y_val, y_test, feature_cols = prepare_temporal_splits(df, target_col)
     
-    # Train Machine Learning models
-    rf = train_random_forest(X_train, y_train, model_dir)
-    xgb = train_xgboost(X_train, y_train, model_dir)
+    # Train machine learning models with validation tracking
+    rf = train_random_forest(X_train, y_train, X_val, y_val, model_dir)
+    xgb = train_xgboost(X_train, y_train, X_val, y_val, model_dir)
     
     # Train ARIMA models (one per district)
     arima_models = train_arima_per_district(df, target_col, date_col, model_dir)
     
-    print("\n" + "=" * 60)
-    print("ALL MODELS TRAINED SUCCESSFULLY")
-    print("=" * 60)
+    print("\nAll models trained.")
     print(f"\nModels saved to: {model_dir}/")
     print("   - random_forest.pkl")
+    print("   - rf_training_history.pkl")
     print("   - xgboost.pkl")
+    print("   - xgb_training_history.pkl")
     print(f"   - arima_models.pkl ({len(arima_models)} districts)")
 
 if __name__ == "__main__":

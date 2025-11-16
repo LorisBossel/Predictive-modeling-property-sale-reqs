@@ -8,10 +8,8 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# Data loading
 def load_dataset(path):
     """Load dataset and detect date column."""
-    # Read CSV file with proper encoding
     df = pd.read_csv(path, encoding="utf-8-sig", low_memory=False)
     
     # Try to find the date column (different possible names)
@@ -37,9 +35,9 @@ def ensure_split_column(df, date_col):
         df["year"] = df[date_col].dt.year
     
     # Create temporal splits based on year ranges
-    df["split"] = "train"  # Default: everything is train
-    df.loc[df["year"].between(2016, 2020), "split"] = "validation"  # 2016-2020: validation
-    df.loc[df["year"] >= 2021, "split"] = "test"  # 2021+: test
+    df["split"] = "train"
+    df.loc[df["year"].between(2016, 2020), "split"] = "validation"
+    df.loc[df["year"] >= 2021, "split"] = "test"
     
     # Show how many rows in each split
     print("Split counts:", df["split"].value_counts().to_dict())
@@ -80,7 +78,28 @@ def load_models(model_dir):
         "arima": joblib.load(paths["arima"])
     }
 
-# Prepare features to perform evaluatio using the models
+def load_training_history(model_dir):
+    """Load training history for RF and XGBoost."""
+    histories = {}
+    
+    # Try to load RF history
+    rf_history_path = os.path.join(model_dir, "rf_training_history.pkl")
+    if os.path.exists(rf_history_path):
+        histories['rf'] = joblib.load(rf_history_path)
+        print("   Loaded Random Forest training history")
+    else:
+        print("   Warning: RF training history not found")
+    
+    # Try to load XGBoost history
+    xgb_history_path = os.path.join(model_dir, "xgb_training_history.pkl")
+    if os.path.exists(xgb_history_path):
+        histories['xgb'] = joblib.load(xgb_history_path)
+        print("   Loaded XGBoost training history")
+    else:
+        print("   Warning: XGBoost training history not found")
+    
+    return histories
+
 def get_feature_columns(df):
     """Extract feature column names."""
     # Get all columns that are features
@@ -164,7 +183,7 @@ def evaluate_models(df, models, target_col, date_col):
         
         # Skip if split is empty
         if len(X) == 0:
-            print(f"WARNING: {split} set is empty")
+            print(f"Warning: {split} set is empty")
             continue
         
         # Evaluate Random Forest
@@ -189,7 +208,6 @@ def evaluate_models(df, models, target_col, date_col):
     # Convert results list to DataFrame
     return pd.DataFrame(results)
 
-# Visualize of the results with help of 2 plots
 def plot_comparison(results_df, output_dir):
     """Create comparison plots for all metrics."""
     # Create output directory if it doesn't exist
@@ -253,7 +271,79 @@ def plot_val_vs_test(results_df, output_dir):
     plt.savefig(os.path.join(output_dir, "val_vs_test.png"), dpi=150)
     plt.close()
 
-# Write a csv with the results
+def plot_training_curves(histories, output_dir):
+    """
+    Plot training curves for Random Forest and XGBoost.
+    Shows train vs validation MAE over training iterations.
+    """
+    if not histories:
+        print("   No training history found. Skipping training curves plot.")
+        return
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Determine how many subplots we need
+    n_models = len(histories)
+    if n_models == 0:
+        return
+    
+    fig, axes = plt.subplots(1, n_models, figsize=(7 * n_models, 5))
+    
+    # If only one model, axes is not a list
+    if n_models == 1:
+        axes = [axes]
+    
+    colors = {'train': '#3498db', 'val': '#e74c3c'}
+    
+    for idx, (model_name, history) in enumerate(histories.items()):
+        ax = axes[idx]
+        
+        if model_name == 'rf':
+            # Random Forest plot
+            x_values = history['n_estimators']
+            title = "Random Forest Training Progress"
+            xlabel = "Number of Trees (n_estimators)"
+        else:
+            # XGBoost plot
+            x_values = history['iteration']
+            title = "XGBoost Training Progress"
+            xlabel = "Iteration (Boosting Rounds)"
+        
+        # Plot train and validation curves
+        ax.plot(x_values, history['train_mae'], 
+                label='Train MAE', color=colors['train'], 
+                linewidth=2, marker='o', markersize=4)
+        ax.plot(x_values, history['val_mae'], 
+                label='Validation MAE', color=colors['val'], 
+                linewidth=2, marker='s', markersize=4)
+        
+        # Styling
+        ax.set_xlabel(xlabel, fontsize=11)
+        ax.set_ylabel('Mean Absolute Error (MAE)', fontsize=11)
+        ax.set_title(title, fontsize=13, fontweight='bold')
+        ax.legend(loc='best', fontsize=10)
+        ax.grid(True, alpha=0.3)
+        
+        # Annotate final values
+        final_train = history['train_mae'][-1]
+        final_val = history['val_mae'][-1]
+        textstr = f"Final Train MAE: {final_train:.2f}\nFinal Val MAE: {final_val:.2f}"
+        ax.text(0.98, 0.98, textstr,
+                transform=ax.transAxes,
+                verticalalignment='top',
+                horizontalalignment='right',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+                fontsize=9)
+    
+    plt.tight_layout()
+    
+    # Save plot
+    plot_path = os.path.join(output_dir, "training_curves.png")
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print(f"   Training curves saved to {plot_path}")
+
 def save_results(results_df, output_dir):
     """Save results in CSV file."""
     # Create output directory if needed
@@ -264,9 +354,8 @@ def save_results(results_df, output_dir):
 
 def print_summary(results_df):
     """Print evaluation summary."""
-    print("\n" + "="*60)
-    print("EVALUATION SUMMARY")
-    print("="*60)
+    print("\nEvaluation summary")
+    
     # Print full results table
     print(results_df.to_string(index=False))
     
@@ -275,13 +364,11 @@ def print_summary(results_df):
     if len(val) > 0:
         best_idx = val["MAE"].idxmin()
         best = val.loc[best_idx]
-        print(f"\nBest Model: {best['Model']} (Val MAE: {best['MAE']:.2f})")
+        print(f"\nBest model: {best['Model']} (Val MAE: {best['MAE']:.2f})")
 
-#  Full evaluation process
 def run_evaluation(featured_path, model_dir="models", output_dir="results"):
     """Execute full evaluation pipeline."""
-    # Step 1: Load and prepare data
-    print("Loading data...")
+    # Load and prepare data
     df, date_col = load_dataset(featured_path)
     df = ensure_split_column(df, date_col)
     target_col = detect_target(df)
@@ -289,40 +376,44 @@ def run_evaluation(featured_path, model_dir="models", output_dir="results"):
     print(f"Dataset: {len(df)} rows, {df['district_id'].nunique()} districts")
     print(f"Target: {target_col}")
     
-    # Step 2: Load trained models
-    print("\nLoading models...")
+    # Load trained models
+    print("\nLoading models:")
     models = load_models(model_dir)
     print(f"Loaded: RF, XGBoost, ARIMA ({len(models['arima'])} districts)")
     
-    # Step 3: Evaluate all models
-    print("\nEvaluating models...")
+    # Load training histories
+    print("\nLoading training histories:")
+    histories = load_training_history(model_dir)
+    
+    # Evaluate all models
+    print("\nEvaluating models:")
     results_df = evaluate_models(df, models, target_col, date_col)
     
-    # Check if evaluation succeeded
+    # Check if evaluation OK
     if len(results_df) == 0:
-        print("ERROR: No results generated")
+        print("Error: No results generated")
         return
     
-    # Step 4: Create visualizations
-    print("\nGenerating visualizations...")
+    # Create visualizations
+    print("\nGenerating visualizations:")
     plot_comparison(results_df, output_dir)
     plot_val_vs_test(results_df, output_dir)
     
-    # Step 5: Save results
-    print("\nSaving results...")
+    # Training curves plot for see curve of train
+    if histories:
+        plot_training_curves(histories, output_dir)
+    
+    # Save results
+    print("\nSaving results:")
     save_results(results_df, output_dir)
     
-    # Step 6: Print summary
     print_summary(results_df)
     print(f"\nResults saved to: {output_dir}/")
 
-# Run the script
 if __name__ == "__main__":
-    # Set up paths 
     base_dir = os.path.dirname(os.path.dirname(__file__))
     featured_path = os.path.join(base_dir, "data", "featured", "featured_dataset.csv")
     model_dir = os.path.join(base_dir, "models")
     output_dir = os.path.join(base_dir, "results")
     
-    # Execute the evaluation
     run_evaluation(featured_path, model_dir, output_dir)

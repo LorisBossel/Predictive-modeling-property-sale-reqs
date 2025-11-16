@@ -1,4 +1,4 @@
-# Future Forecasting (2025-2026) script using best performing model
+# Future Forecasting (2025-2026) script using best performing model with rolling forecast
 
 import pandas as pd
 import numpy as np
@@ -6,6 +6,7 @@ import os
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
+from typing import Dict, List
 
 def load_featured_data(featured_path: str) -> tuple:
     """
@@ -50,7 +51,8 @@ def detect_target_column(df: pd.DataFrame) -> str:
 
 def load_best_model(model_dir="models", model_type="xgboost"):
     """
-    Load the best performing model (default: XGBoost based on evaluation results).
+    Load the best performing model.
+    (XGBoost for the moment)
     """
     model_paths = {
         "random_forest": os.path.join(model_dir, "random_forest.pkl"),
@@ -69,7 +71,7 @@ def load_best_model(model_dir="models", model_type="xgboost"):
 def generate_future_dates(start_year=2025, end_year=2026, freq="MS"):
     """
     Generate monthly dates for the forecast period.
-    MS = Month Start
+    frequency monthly start
     """
     date_range = pd.date_range(
         start=f"{start_year}-01-01",
@@ -78,9 +80,29 @@ def generate_future_dates(start_year=2025, end_year=2026, freq="MS"):
     )
     return date_range
 
-def get_last_known_values(df, district_id, target_col, date_col):
+def get_historical_values(df: pd.DataFrame, district_id: int, target_col: str, 
+                          date_col: str, n_values: int = 5) -> List[float]:
     """
-    Get the last known values for a district to use as base for forecasting.
+    Get the last n historical values for a district.
+    Returns list of values in chronological order (oldest to newest).
+    """
+    df_district = df[df["district_id"] == district_id].sort_values(date_col)
+    
+    if len(df_district) == 0:
+        return [0] * n_values
+    
+    # Get last n values
+    recent_values = df_district[target_col].tail(n_values).tolist()
+    
+    # Fill with zeros if not enough historical data
+    while len(recent_values) < n_values:
+        recent_values.insert(0, 0)
+    
+    return recent_values
+
+def get_last_known_values(df: pd.DataFrame, district_id: int, target_col: str, date_col: str) -> pd.Series:
+    """
+    Get the last known row for a district.
     """
     df_d = df[df["district_id"] == district_id].sort_values(date_col)
     
@@ -90,129 +112,158 @@ def get_last_known_values(df, district_id, target_col, date_col):
     last_row = df_d.iloc[-1].copy()
     return last_row
 
-def prepare_forecast_features(df, target_col, date_col, districts, future_dates):
+def prepare_forecast_features_rolling(
+    df: pd.DataFrame, 
+    target_col: str, 
+    date_col: str, 
+    districts: List[int], 
+    future_dates: pd.DatetimeIndex,
+    model,
+    model_type: str
+) -> pd.DataFrame:
     """
-    Prepare features for future forecasting.
-    Uses the last known values and create features for the future dates.
+    Future forecasting with rolling updtes.
+    update lag features with the new predictions for the next month.
     """
-    # First, identify which feature columns were used in training
-    available_features = [col for col in df.columns if "lag" in col or "rolling" in col]
-    print(f"Available features in dataset: {len(available_features)}")
+    # Get year_min for year_trend calculation
+    year_min = df["year"].min() if "year" in df.columns else df[date_col].dt.year.min()
     
-    forecast_records = []
+    # Identify feature columns used in training
+    feature_cols = [
+        col for col in df.columns 
+        if "lag" in col or "rolling" in col or col in [
+            "taux_de_logements_vacants_en_%", "month_sin", "month_cos", "year_trend"
+        ]
+    ]
     
+    print(f"Using {len(feature_cols)} features")
+    
+    # Dictionary to store prediction history for each district
+    prediction_history: Dict[int, List[float]] = {}
+    
+    # Initialize with historical values
     for district_id in districts:
-        last_row = get_last_known_values(df, district_id, target_col, date_col)
+        historical = get_historical_values(df, district_id, target_col, date_col, n_values=5)
+        prediction_history[district_id] = historical
         
-        if last_row is None:
-            continue
+    # Store all forecast records
+    all_forecasts = []
+    
+    # Process month by month
+    print(f"Processing {len(future_dates)} months:")
+    
+    for month_idx, future_date in enumerate(future_dates):
+        month_forecasts = []
         
-        for future_date in future_dates:
-            # Extract temporal features
-            month = future_date.month
-            year = future_date.year
-            month_sin = np.sin(2 * np.pi * month / 12)
-            month_cos = np.cos(2 * np.pi * month / 12)
+        # Extract temporal features for this month
+        month = future_date.month
+        year = future_date.year
+        month_sin = np.sin(2 * np.pi * month / 12)
+        month_cos = np.cos(2 * np.pi * month / 12)
+        year_trend = year - year_min
+        
+        # Prepare features for all districts for this month
+        X_month = []
+        district_order = []
+        
+        for district_id in districts:
+            last_row = get_last_known_values(df, district_id, target_col, date_col)
             
-            # Year trend (assuming year column exists or extract from date)
-            year_min = df["year"].min() if "year" in df.columns else df[date_col].dt.year.min()
-            year_trend = year - year_min
+            if last_row is None:
+                continue
             
-            # Prepare feature dictionary
+            # Get current prediction history for this district
+            history = prediction_history[district_id]
+            
+            # Build features dictionary
             features = {}
             
-            # Add ALL lag features that exist in the dataset
-            for col in df.columns:
-                if "lag" in col and target_col in col:
+            # Lag features: use most recent values from prediction history
+            if f"{target_col}_lag_3" in feature_cols:
+                features[f"{target_col}_lag_3"] = history[-3] if len(history) >= 3 else 0
+            
+            if f"{target_col}_lag_4" in feature_cols:
+                features[f"{target_col}_lag_4"] = history[-4] if len(history) >= 4 else 0
+            
+            if f"{target_col}_lag_5" in feature_cols:
+                features[f"{target_col}_lag_5"] = history[-5] if len(history) >= 5 else 0
+            
+            # Rolling features: use last known rolling values
+            for col in feature_cols:
+                if "rolling" in col and col not in features:
                     features[col] = last_row.get(col, 0)
             
-            # Add ALL rolling features that exist in the dataset
-            for col in df.columns:
-                if "rolling" in col and target_col in col:
-                    features[col] = last_row.get(col, 0)
+            # Vacancy rate: use last known value
+            if "taux_de_logements_vacants_en_%" in feature_cols:
+                features["taux_de_logements_vacants_en_%"] = last_row.get(
+                    "taux_de_logements_vacants_en_%", 0
+                )
             
-            # Add vacancy rate if available
-            if "taux_de_logements_vacants_en_%" in df.columns:
-                features["taux_de_logements_vacants_en_%"] = last_row.get("taux_de_logements_vacants_en_%", 0)
-            
-            # Add temporal features
+            # Temporal features
             features["month_sin"] = month_sin
             features["month_cos"] = month_cos
             features["year_trend"] = year_trend
             
-            # Add metadata (useful for output)
-            features["district_id"] = district_id
-            features["date"] = future_date
-            features["year"] = year
-            features["month"] = month
+            feature_vector = [features.get(col, 0) for col in feature_cols]
+            X_month.append(feature_vector)
+            district_order.append(district_id)
             
-            forecast_records.append(features)
-    
-    forecast_df = pd.DataFrame(forecast_records)
-    
-    # Ensure column order matches training data
-    feature_cols_ordered = [
-        col for col in df.columns 
-        if col in forecast_df.columns and (
-            "lag" in col or "rolling" in col or col in [
-                "taux_de_logements_vacants_en_%", "month_sin", "month_cos", "year_trend"
-            ]
-        )
-    ]
-    
-    # Reorder columns: metadata first, then features in correct order
-    metadata_cols = ["district_id", "date", "year", "month"]
-    forecast_df = forecast_df[metadata_cols + feature_cols_ordered]
-    
-    print(f"Prepared {len(forecast_df)} forecast records with {len(feature_cols_ordered)} features")
-    
-    return forecast_df
-
-def generate_forecasts(model, model_type, forecast_df, target_col):
-    """
-    Generate predictions using the trained model.
-    Ensures feature order matches training.
-    """
-    # Identify feature columns (exclude metadata)
-    feature_cols = [
-        col for col in forecast_df.columns
-        if col not in ["district_id", "date", "year", "month"]
-    ]
-    
-    if not feature_cols:
-        raise ValueError("No feature columns found in forecast dataframe")
-    
-    print(f"Using {len(feature_cols)} features for prediction")
-    print(f"Features: {feature_cols[:5]}...")  # Print first 5 for verification
-    
-    X_future = forecast_df[feature_cols].fillna(0)
-    
-    if model_type == "arima":
-        # ARIMA requires special handling (per-district forecasting)
-        predictions = []
-        for district_id in forecast_df["district_id"].unique():
-            if district_id in model:
-                arima_model = model[district_id]
-                n_steps = len(forecast_df[forecast_df["district_id"] == district_id])
-                try:
-                    forecast = arima_model.forecast(steps=n_steps)
-                    predictions.extend(forecast.tolist())
-                except:
-                    # Fallback to zero or mean
-                    predictions.extend([0] * n_steps)
-            else:
-                predictions.extend([0] * len(forecast_df[forecast_df["district_id"] == district_id]))
+            # Store metadata for output
+            month_forecasts.append({
+                "district_id": district_id,
+                "date": future_date,
+                "year": year,
+                "month": month,
+            })
         
-        forecast_df["prediction"] = predictions
-    else:
-        # ML models (RF, XGBoost)
-        forecast_df["prediction"] = model.predict(X_future)
+        # Make predictions for this month (all districts at once)
+        if len(X_month) > 0:
+            X_month_df = pd.DataFrame(X_month, columns=feature_cols)
+            
+            if model_type == "arima":
+                # ARIMA: predict per district
+                predictions = []
+                for district_id in district_order:
+                    if district_id in model:
+                        try:
+                            pred = model[district_id].forecast(steps=1)[0]
+                            predictions.append(pred)
+                        except:
+                            predictions.append(0)
+                    else:
+                        predictions.append(0)
+            else:
+                # ML models: batch prediction
+                predictions = model.predict(X_month_df)
+            
+            # Update prediction history and store results
+            for i, (district_id, prediction) in enumerate(zip(district_order, predictions)):
+                # Add prediction to history (for next month's lag features)
+                prediction_history[district_id].append(float(prediction))
+                
+                # Keep only last 5 values (for lag_5)
+                if len(prediction_history[district_id]) > 5:
+                    prediction_history[district_id].pop(0)
+                
+                # Add prediction to output
+                month_forecasts[i]["prediction"] = float(prediction)
+            
+            all_forecasts.extend(month_forecasts)
+        
+        # Progress indicator
+        if (month_idx + 1) % 6 == 0 or month_idx == len(future_dates) - 1:
+            print(f"  Processed {month_idx + 1}/{len(future_dates)} months")
+    
+    forecast_df = pd.DataFrame(all_forecasts)
+    
+    print(f"Generated {len(forecast_df)} forecasts")
+    print("Lag features updated dynamically based on predictions")
     
     return forecast_df
 
-def aggregate_forecasts(forecast_df, groupby="year"):
+def aggregate_forecasts(forecast_df: pd.DataFrame, groupby="year") -> pd.DataFrame:
     """
-    Aggregate forecasts by year or quarter.
+    Aggregate forecasts by year (also possible by quarter).
     """
     if groupby == "year":
         summary = forecast_df.groupby(["district_id", "year"])["prediction"].sum().reset_index()
@@ -224,20 +275,20 @@ def aggregate_forecasts(forecast_df, groupby="year"):
     
     return summary
 
-def plot_forecast_summary(forecast_df, output_dir="results"):
+def plot_forecast_summary(forecast_df: pd.DataFrame, output_dir="results"):
     """
-    Create visualization of annual forecasts by district.
+    Create visualization of forecasts by district.
     """
     os.makedirs(output_dir, exist_ok=True)
     
     annual_summary = aggregate_forecasts(forecast_df, groupby="year")
     
-    # Pivot for plotting
     pivot_df = annual_summary.pivot(index="district_id", columns="year", values="prediction")
     
     plt.figure(figsize=(12, 6))
     pivot_df.plot(kind="bar", ax=plt.gca(), width=0.8, color=["skyblue", "salmon"])
-    plt.title("Annual Forecasts by District (2025-2026)", fontsize=14, fontweight="bold")
+    plt.title("Annual Forecasts by District (2025-2026) - Rolling Forecast", 
+              fontsize=14, fontweight="bold")
     plt.xlabel("District ID", fontsize=12)
     plt.ylabel("Predicted Requisitions", fontsize=12)
     plt.legend(title="Year", fontsize=10)
@@ -251,7 +302,8 @@ def plot_forecast_summary(forecast_df, output_dir="results"):
     
     print(f"Forecast plot saved to {plot_path}")
 
-def plot_monthly_forecast(forecast_df, sample_districts=5, output_dir="results"):
+def plot_monthly_forecast(forecast_df: pd.DataFrame, sample_districts=5, 
+                         output_dir="results"):
     """
     Plot monthly forecasts for a sample of districts.
     """
@@ -268,13 +320,18 @@ def plot_monthly_forecast(forecast_df, sample_districts=5, output_dir="results")
         axes = [axes]
     
     for idx, district_id in enumerate(districts):
-        df_d = forecast_df[forecast_df["district_id"] == district_id]
+        df_d = forecast_df[forecast_df["district_id"] == district_id].sort_values("date")
         
-        axes[idx].plot(df_d["date"], df_d["prediction"], marker='o', linewidth=2, color='steelblue')
-        axes[idx].set_title(f"District {district_id} - Monthly Forecast", fontsize=12, fontweight="bold")
+        axes[idx].plot(df_d["date"], df_d["prediction"], 
+                      marker='o', linewidth=2, color='steelblue', markersize=5)
+        axes[idx].set_title(f"District {district_id} - Monthly Rolling Forecast", 
+                          fontsize=10, fontweight="bold")
         axes[idx].set_xlabel("Date", fontsize=10)
         axes[idx].set_ylabel("Predicted Requisitions", fontsize=10)
         axes[idx].grid(True, alpha=0.3)
+        axes[idx].axvline(pd.Timestamp('2025-12-31'), color='red', 
+                         linestyle='--', alpha=0.5, label='2025/2026')
+        axes[idx].legend()
     
     plt.tight_layout()
     
@@ -284,9 +341,9 @@ def plot_monthly_forecast(forecast_df, sample_districts=5, output_dir="results")
     
     print(f"Monthly forecast plot saved to {monthly_plot_path}")
 
-def save_forecasts(forecast_df, output_dir="results"):
+def save_forecasts(forecast_df: pd.DataFrame, output_dir="results"):
     """
-    Save forecasts to CSV.
+    Save forecasts to CSV, to have trace of values.
     """
     os.makedirs(output_dir, exist_ok=True)
     
@@ -297,31 +354,46 @@ def save_forecasts(forecast_df, output_dir="results"):
     
     print(f"Forecasts saved to {output_path}")
 
-def print_forecast_summary(forecast_df):
+def print_forecast_summary(forecast_df: pd.DataFrame):
     """
     Print summary statistics of forecasts.
     """
-
-    print("forecast summary performance results")    
+    print("\nForecast summary:")
+    
     # Annual summary
     annual = aggregate_forecasts(forecast_df, groupby="year")
-    print("\nTotal Predicted Requisitions by Year:")
+    print("\nTotal predicted requisitions by year:")
     for year in sorted(annual["year"].unique()):
         total = annual[annual["year"] == year]["prediction"].sum()
         print(f"  {year}: {total:.0f}")
     
+    # Year over year change
+    years = sorted(annual["year"].unique())
+    if len(years) == 2:
+        total_2025 = annual[annual["year"] == years[0]]["prediction"].sum()
+        total_2026 = annual[annual["year"] == years[1]]["prediction"].sum()
+        yoy_change = ((total_2026 - total_2025) / total_2025) * 100
+        print(f"  Year-over-year change: {yoy_change:+.1f}%")
+    
     # District summary
-    print("\nAverage Monthly Prediction by District:")
-    district_avg = forecast_df.groupby("district_id")["prediction"].mean().sort_values(ascending=False)
+    print("\nAverage monthly prediction by district:")
+    district_avg = forecast_df.groupby("district_id")["prediction"].mean().sort_values(
+        ascending=False
+    )
     for district_id, avg_pred in district_avg.items():
+        pct_of_total = (avg_pred / district_avg.sum()) * 100
         print(f"  District {district_id}: {avg_pred:.2f}")
     
     # Overall stats
-    print(f"\nOverall Statistics:")
+    print(f"\nOverall statistics:")
     print(f"  Mean monthly prediction: {forecast_df['prediction'].mean():.2f}")
-    print(f"  Std monthly prediction: {forecast_df['prediction'].std():.2f}")
+    print(f"  Median monthly prediction: {forecast_df['prediction'].median():.2f}")
     print(f"  Min monthly prediction: {forecast_df['prediction'].min():.2f}")
     print(f"  Max monthly prediction: {forecast_df['prediction'].max():.2f}")
+    
+    # Coefficient of variation
+    cv = (forecast_df['prediction'].std() / forecast_df['prediction'].mean()) * 100
+    print(f"  Coefficient of variation: {cv:.1f}%")
 
 def run_forecast_pipeline(
     featured_path: str,
@@ -334,12 +406,11 @@ def run_forecast_pipeline(
     1. Load data and best model
     2. Generate future dates (2025-2026)
     3. Prepare forecast features
-    4. Generate predictions
-    5. Create visualizations
-    6. Save results
+    4. Generate predictions month by month
+    5. Compare with historical data
     """
-    print("Forecasting process (2025-2026)")  
-
+    print("Rolling forecast pipeline (2025-2026):")
+    
     # Load data
     df, date_col = load_featured_data(featured_path)
     target_col = detect_target_column(df)
@@ -349,18 +420,18 @@ def run_forecast_pipeline(
     
     # Generate future dates
     future_dates = generate_future_dates(start_year=2025, end_year=2026)
-    print(f"\nForecasting period: {future_dates[0].date()} to {future_dates[-1].date()}")
+    print(f"Forecasting period: {future_dates[0].date()} to {future_dates[-1].date()}")
     print(f"Total forecast points: {len(future_dates)} months")
     
-    # Prepare features
+    # Get districts
     districts = sorted(df["district_id"].unique())
     print(f"Forecasting for {len(districts)} districts")
     
-    forecast_df = prepare_forecast_features(df, target_col, date_col, districts, future_dates)
-    
-    # Generate predictions
-    print(f"\nGenerating forecasts using {model_type}...")
-    forecast_df = generate_forecasts(model, model_type, forecast_df, target_col)
+    # Generate forecasts
+    print(f"Generating forecasts using {model_type}:")
+    forecast_df = prepare_forecast_features_rolling(
+        df, target_col, date_col, districts, future_dates, model, model_type
+    )
     
     # Print summary
     print_forecast_summary(forecast_df)
@@ -370,10 +441,9 @@ def run_forecast_pipeline(
     plot_forecast_summary(forecast_df, output_dir)
     plot_monthly_forecast(forecast_df, min(5, len(districts)), output_dir)
     
-    # Save results
     save_forecasts(forecast_df, output_dir)
     
-    print(" Completed.")
+    print("\nForecast completed.")
 
 if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.dirname(__file__))
@@ -385,5 +455,5 @@ if __name__ == "__main__":
         featured_path,
         model_dir,
         output_dir,
-        model_type="xgboost" #xgboost perform better
+        model_type="xgboost"
     )

@@ -1,0 +1,115 @@
+name: Forecasting pipeline
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  
+
+jobs:
+  forecasting-pipeline:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Python install
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create directory structure
+      run: |
+        mkdir -p data/raw
+        mkdir -p data/processed
+        mkdir -p data/featured
+        mkdir -p models
+        mkdir -p results
+        
+    - name: Download raw data
+      run: |
+            curl -o data/raw/06_02_conjoncture_poursuites.csv "https://opendata.fr.ch/api/explore/v2.1/catalog/datasets/06_02_conjoncture_poursuites/exports/csv?use_labels=true"
+            curl -o data/raw/09_03_log_vacants_taux_des_1975.csv "https://opendata.fr.ch/api/explore/v2.1/catalog/datasets/09_03_log_vacants_taux_des_1975/exports/csv?use_labels=true"
+        
+    - name: Preprocessing
+      run: |
+        python src/preprocessing.py
+        
+    - name: Feature engineering
+      run: |
+        python src/feature_engineering.py
+        
+    - name: Train models
+      run: |
+        python src/model.py
+        
+    - name: Evaluate models
+      run: |
+        python src/evaluation.py
+        
+    - name: Generate forecasts
+      run: |
+        python src/forecast.py
+        
+    - name: Upload models as artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: trained-models
+        path: models/
+        retention-days: 30
+        
+    - name: Upload results as artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: evaluation-results
+        path: results/
+        retention-days: 30
+        
+    - name: Upload processed data as artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: processed-data
+        path: |
+          data/processed/
+          data/featured/
+        retention-days: 30
+        
+    - name: Comment PR with results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          
+          // Leggi i risultati (se esistono)
+          let comment = '## Forecasting pipeline Results\n\n';
+          comment += 'Pipeline executed successfully!\n\n';
+          
+          try {
+            const results = fs.readFileSync('results/results.csv', 'utf8');
+            comment += '### Model Performance\n```\n' + results + '\n```\n';
+          } catch (err) {
+            comment += 'Results file not found.\n';
+          }
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });

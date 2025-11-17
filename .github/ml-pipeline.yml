@@ -1,4 +1,4 @@
-name: Forecasting pipeline
+name: ML pipeline
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:  
 
 jobs:
-  forecasting-pipeline:
+  ml-pipeline:
     runs-on: ubuntu-latest
     
     steps:
@@ -96,8 +96,7 @@ jobs:
         script: |
           const fs = require('fs');
           
-          // Leggi i risultati (se esistono)
-          let comment = '## Forecasting pipeline Results\n\n';
+          let comment = '## ML pipeline Results\n\n';
           comment += 'Pipeline executed successfully!\n\n';
           
           try {

@@ -15,35 +15,21 @@
 # Table of Contents
 
 1. [Introduction](#1-introduction)  
-2. [Methodology](#2-methodology)  
-3. [Results](#3-results)  
-4. [Discussion](#4-discussion)  
-5. [Conclusion](#5-conclusion)  
-6. [References](#references)  
+2. [Background](#2-background)  
+3. [Design & Architecture](#3-design&architecture)  
+4. [Implementation](#4-implementation)  
+5. [Evaluation](#5-evaluation)  
+6. [Discussion](#discussion)  
+7. [Conclusion](#conclusion)  
 
 
 # 1. Introduction
 
-This project aims to forecast the monthly number of *réquisitions de vente* (property sale requisitions) in the **Canton of Fribourg**, Switzerland, an indicator of financial distress within local economies.  <br>
+Property sale requisitions (réquisitions de vente) represent the terminal stage of Switzerland's debt collection legal framework, occurring when real estate assets are liquidated to satisfy outstanding creditor obligations. In Canton Fribourg, these proceedings serve as quantifiable indicators of regional financial distress, reflecting underlying dynamics in credit markets and housing stability. Monitoring and forecasting these events provides valuable insights into regional financial stability and housing market tension, supporting decision-making in debt enforcement administration and public policy formulation. Current forecasting approaches in Swiss cantonal administration rely primarily on historical averages and linear extrapolation, methodologies that fail to capture complex temporal patterns and multivariate dependencies. This project addresses this methodological gap by developing a machine learning forecasting pipeline to predict monthly property sale requisitions using 30 years of administrative data (1994-2024) obtained from the Swiss Federal Statistical Office. The central research question is whether historical debt collection proceedings and housing market indicators can be leveraged to forecast property requisitions with sufficient accuracy to support operational planning in cantonal administration. The project pursues three primary objectives: first, develop a predictive machine learning model maintaining rigorous temporal validation to prevent information leakage while achieving strong generalization performance on held-out test data; second, implement a rolling forecast methodology to generate 24-month predictions for 2025-2026, providing actionable intelligence for resource allocation in Canton Fribourg's debt enforcement offices.
 
-Using open datasets from the **Swiss Federal Statistical Office**, the project develops a predictive model combining **financial and housing indicators** through time-series analysis and machine learning. <br>
-The workflow includes data preparation, feature engineering, exploratory analysis, model development, and evaluation using **ARIMA**, **Random Forest**, and **XGBoost** models.
+# 2. Background
 
-## 1.1 Background and Motivation
-*Réquisitions de vente* represent the final stage in debt collection procedures, occurring when properties are sold due to unpaid obligations.  
-Monitoring and forecasting these events provides valuable insights into **regional financial stability** and **housing market tension**.  
-This project seeks to build a **predictive time-series model** capable of anticipating such trends to support decision-making in debt management and public administration.
-
-## 1.2 Problem Statement
-The challenge is to forecast future *réquisitions de vente* based on historical data of **debt collection proceedings (poursuites)** and **vacant dwellings (logements vacants)**.
-
-## 1.3 Objectives
-- Collect and clean open data from the Swiss Federal Statistical Office (FSO).  
-- Engineer lagged temporal features to capture delayed effects.  
-- Build and evaluate predictive models using ARIMA, Random Forest, and XGBoost.  
-- Compare their performance using **MAE** and **RMSE**.
-
-# 2. Methodology
+# 3. Design & Architecture
 
 ## 2.1 Data Sources
 - **Poursuites par mois depuis 1994** — Monthly statistics on debt collection proceedings.  
@@ -71,13 +57,13 @@ The vacancy data are replicated monthly and merged with the poursuites dataset b
   - Test: 2021–2024  
 - Evaluation metrics: **MAE**, **RMSE**.
 
-# 3. Results
+# 4. Implementation
 
+# 5. Evaluation
 
-# 4. Discussion
+# 6. Discussion
 
-
-# 5. Conclusion
+# 7. Conclusion
 
 
 ---
@@ -88,3 +74,7 @@ The vacancy data are replicated monthly and merged with the poursuites dataset b
    [https://opendata.swiss/fr/dataset/betreibungen-pro-monat-ab-1994](https://opendata.swiss/fr/dataset/betreibungen-pro-monat-ab-1994)  
 2. **Swiss Federal Statistical Office (FSO).** (2024). *Logements vacants depuis 1975*.  
    [https://opendata.swiss/fr/dataset/leerstehende-wohnungen-anzahl-quote-seit-1975](https://opendata.swiss/fr/dataset/leerstehende-wohnungen-anzahl-quote-seit-1975)  
+
+---
+
+# Appendices

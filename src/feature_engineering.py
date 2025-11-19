@@ -1,8 +1,17 @@
 # Feature Engineering script
+"""
+Feature engineering module.
 
-import pandas as pd
+Creates lag features, cyclical temporal encodings, and trend components
+for time series modeling.
+"""
+
+
 import os
+
 import numpy as np
+import pandas as pd
+
 
 def load_processed_data(processed_path: str) -> pd.DataFrame:
     """

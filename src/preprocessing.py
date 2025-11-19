@@ -1,7 +1,16 @@
 # Preprocessing script
+"""
+Data preprocessing module.
+
+Handles loading, cleaning, and merging of raw datasets from Swiss Federal
+Statistical Office sources.
+"""
+
+
+import os
 
 import pandas as pd
-import os
+
 from typing import Tuple
 
 

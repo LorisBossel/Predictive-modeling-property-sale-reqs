@@ -1,4 +1,3 @@
-# Model Training script (with Temporal Validation Train/Val/Test Split)
 """
 Model training module.
 
@@ -288,7 +287,7 @@ def run_training_pipeline(featured_path: str, model_dir="models"):
     2. Detect target and date columns
     3. Create temporal splits if needed
     4. Prepare train/val/test sets
-    5. Train all three models (RF, XGBoost, ARIMA)
+    5. Train all three models
     6. Save all models
     """
     print("Model training pipeline")

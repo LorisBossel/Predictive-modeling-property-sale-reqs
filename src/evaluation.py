@@ -1,4 +1,3 @@
-# Models Evaluation script (with Temporal Validation)
 """
 Model evaluation module.
 

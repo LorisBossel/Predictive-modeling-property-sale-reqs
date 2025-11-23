@@ -1,4 +1,3 @@
-# Preprocessing script
 """
 Data preprocessing module.
 

@@ -1,4 +1,3 @@
-# Future Forecasting (2025-2026) script using best performing model with rolling forecast
 """
 Forecasting module.
 

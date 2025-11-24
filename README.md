@@ -1,7 +1,6 @@
 # Forecasting Property Sale Requisitions in Canton Fribourg, Switzerland
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 A machine learning forecasting pipeline to predict monthly property sale requisitions (*réquisitions de vente*) in Canton Fribourg using 30 years of Swiss administrative data (1994-2024). This project develops an end-to-end predictive system combining debt collection statistics with housing market indicators through time series analysis and ensemble learning methods.

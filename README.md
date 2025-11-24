@@ -106,7 +106,7 @@ python src/forecast.py
 
 - **[Technical Report (PDF)](docs/report.pdf)** - Complete methodology and results
 - **[Project Proposal](PROPOSAL.md)** - Original project objectives
-- **[AI Usage Documentation](AI_usage.md)** - AI tools used during development
+- **[AI Usage](AI_usage.md)** - AI tools used during development
 - **[Exploratory Analysis](notebooks/exploration.pdf)** - Initial data exploration
 
 ---

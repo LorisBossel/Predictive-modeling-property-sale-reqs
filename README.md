@@ -53,11 +53,26 @@ source myenv/bin/activate
 #### 3. Install dependencies
 ```bash
 pip install -r requirements.txt
----
-
 ```
 
-## Automated pipeline
+### Run Full Pipeline
+```bash
+python main.py
+```
+
+This executes the complete workflow:
+1. Data preprocessing
+2. Feature engineering
+3. Models training
+4. Models evaluation
+5. Forescasting demo (2025-2026)
+
+### Run Pipeline
+```bash
+python main.py --step preprocess   # Data preprocessing only
+```
+
+## Pipelines steps:
 
 The ML pipeline consists of five independent modules that execute sequentially:
 

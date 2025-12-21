@@ -3,7 +3,7 @@
 
 **Student:** Loris Bossel<br>
 **Professor:** Simon Scheidegger<br>
-**Date:** October 2024<br>
+**Date:** October 2025<br>
 ---
 
 This project aims to build a time-series model to predict the number of property sale requisitions (Réquisitions de vente) in the Canton of Fribourg.
